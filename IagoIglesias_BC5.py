@@ -78,6 +78,7 @@ TIPOS DE PREGUNTAS:
 - Evolución: Agrupa por 'month'. Usa px.line.
 - Patrones: Agrupa por 'hour' o 'day_of_week'. Usa px.bar.
 - Comportamiento: Usa la columna 'skipped' o 'shuffle'. Usa px.pie.
+- Comparaciones (ej. verano vs invierno): Filtra creando una columna condicional basada en 'month' (ej. verano: 6,7,8; invierno: 12,1,2). Agrupa y usa px.bar con barmode='group'.
 """
 
 
@@ -294,10 +295,10 @@ if prompt := st.chat_input("Ej: ¿Cuál es mi artista más escuchado?"):
 #    el LLM? ¿Qué devuelve? ¿Dónde se ejecuta el código generado?
 #    ¿Por qué el LLM no recibe los datos directamente?
 #
-#   Usamos text-to-code por seguridad y eficiencia. El LLM recibe solo el esquema 
-#   del DataFrame y las reglas, no el JSON completo del usuario. Devuelve código 
-#   Python (Plotly) que ejecutamos localmente con `exec()`. Enviar los datos reales 
-#   consumiría demasiados tokens y expondría la privacidad del usuario.
+#   Decidí usar text-to-code por seguridad y eficiencia. El LLM solo recibe el esquema 
+#   del DataFrame y las reglas (nunca el JSON completo), y devuelve código 
+#   Python (Plotly) que se ejecuta localmente con `exec()`. Enviar los datos reales 
+#   consumiría demasiados tokens y expondría la privacidad.
 #
 #
 # 2. EL SYSTEM PROMPT COMO PIEZA CLAVE
@@ -306,11 +307,12 @@ if prompt := st.chat_input("Ej: ¿Cuál es mi artista más escuchado?"):
 #    de tu prompt, y otro de una que falla o fallaría si quitases
 #    una instrucción.
 #
-#   Es el "contrato" con el LLM. Da contexto (esquema, columnas) y límites. 
-#    - Éxito: Si preguntan "¿Cuántas canciones salto?", el LLM usa la columna `skipped`
-#   gracias a las instrucciones claras en "TIPOS DE PREGUNTAS".
-#   - Fallo: Sin la regla de "FUERA DE ALCANCE", si preguntan "Capital de Francia", 
-#   el LLM inventaría código o daría error. Con la regla, devuelve un gráfico vacío.
+#   El System Prompt son los cimientos del LLM. Aporta tanto el contexto (esquema, columnas), como sus límites. 
+#   Éxito: Si se pregunta "¿Cuántas canciones salto?", el LLM usa la columna `skipped`
+#   gracias a las instrucciones detalladas en "TIPOS DE PREGUNTAS".
+#   Fallo: Sin la regla "FUERA DE ALCANCE", si se pregunta "¿Cuál es el PIB de Francia", 
+#   el LLM se inventaría la respuesta o, en la mayor parte de ocasiones, daría error.
+#   Con esta regla, arroja una respuesta en texto de que la pregunta está fuera de su alcance.
 #
 #
 # 3. EL FLUJO COMPLETO
