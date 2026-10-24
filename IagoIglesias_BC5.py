@@ -2,8 +2,8 @@
 # CABECERA
 # ============================================================
 # Alumno: Iago Iglesias
-# URL Streamlit Cloud: https://...streamlit.app
-# URL GitHub: https://github.com/...
+# URL Streamlit Cloud: https://mi-app-spotify-yqwomgwwivekvny6l2dofi.streamlit.app/
+# URL GitHub: https://github.com/iiglesias-hue/mi-app-spotify.git
 
 # ============================================================
 # IMPORTS
