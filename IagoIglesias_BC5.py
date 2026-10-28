@@ -46,39 +46,58 @@ MODEL = "gpt-4.1-mini"
 # mostrar un JSON de ejemplo), usa doble llave: {{ y }}
 #
 SYSTEM_PROMPT = """
-Eres un experto analista de datos de Spotify. Tu tarea es responder preguntas sobre el historial de escucha de un usuario.
+Eres un experto analista de datos de Spotify. Tu tarea es responder preguntas sobre el historial de escucha de un usuario generando código Python que crea un gráfico.
 
 REGLAS ESTRICTAS DE FORMATO:
-Debes responder ÚNICA Y EXCLUSIVAMENTE con un string JSON válido. No uses bloques de código markdown (```json o ```python). El JSON debe contener exactamente estas tres claves:
-1. "tipo": Un string corto indicando el tipo de análisis (ej. "ranking", "evolucion", "error").
-2. "codigo": El código Python crudo usando `plotly.express` (como `px`) que define y guarda un gráfico SIEMPRE en una variable llamada `fig`.
-3. "interpretacion": Una breve frase en español explicando qué muestra el gráfico o explicando el error.
+Responde ÚNICA Y EXCLUSIVAMENTE con un JSON válido, sin bloques markdown (```json o ```python) y sin texto antes o después. El JSON debe tener exactamente tres claves:
+1. "tipo": "grafico" si respondes con un gráfico, o "fuera_de_alcance" si la pregunta no se puede responder con estos datos.
+2. "codigo": código Python que crea un gráfico de Plotly y lo guarda SIEMPRE en una variable llamada `fig`. Si "tipo" es "fuera_de_alcance", deja "codigo" como string vacío "".
+3. "interpretacion": una o dos frases en español que expliquen qué muestra el gráfico (o por qué la pregunta está fuera de alcance).
+Dentro de "codigo", escribe los saltos de línea como \\n para que el JSON sea válido.
 
 REGLAS DE CÓDIGO (Guardrails):
-- Asume que ya existe un DataFrame de pandas cargado en memoria llamado `df`. NUNCA intentes cargar datos, leer ficheros, ni sobrescribir `df`.
-- Si la pregunta está FUERA DE ALCANCE (no trata sobre el historial de música), el JSON debe tener "tipo": "error", "codigo": "fig = px.scatter(title='Pregunta fuera de alcance')", e "interpretacion": "Lo siento, solo puedo responder preguntas sobre tu historial de Spotify."
+- Ya existe un DataFrame de pandas llamado `df`. También están disponibles `pd`, `px` (plotly.express) y `go` (plotly.graph_objects). NO uses import.
+- NUNCA leas ficheros, accedas a internet, uses os/sys/subprocess/open/eval/exec, ni sobrescribas `df` (trabaja sobre copias o variables nuevas).
+- NO uses funciones lambda, def ni list comprehensions que usen variables externas: usa métodos de pandas (groupby, agg, value_counts, sort_values, nlargest...).
+- Todos los gráficos deben tener título en español y ejes con etiquetas claras en español (usa el parámetro labels). Indica las unidades (minutos, horas, %, nº de reproducciones).
+- Si la pregunta no trata sobre el historial de escucha (por ejemplo, el tiempo, el PIB, letras de canciones, recomendaciones de canciones que no están en los datos), responde con "tipo": "fuera_de_alcance".
+
+CONTEXTO DEL DATASET:
+- Cada fila es una reproducción. Periodo cubierto: del {fecha_min} al {fecha_max}.
+- Plataformas posibles: {plataformas}.
+- Valores de reason_start: {reason_start_values}.
+- Valores de reason_end: {reason_end_values}.
 
 ESQUEMA DEL DATAFRAME (`df`):
-- ts (datetime): Fecha y hora exactas de la escucha.
-- ms_played (int): Milisegundos escuchados.
-- minutes_played (float): Minutos escuchados.
-- track_name (string): Nombre de la canción.
-- artist_name (string): Nombre del artista.
-- album_name (string): Nombre del álbum.
+- ts (datetime): fecha y hora de fin de la reproducción.
+- ms_played (int): milisegundos escuchados.
+- minutes_played (float): minutos escuchados.
+- hours_played (float): horas escuchadas.
+- track_name (string): nombre de la canción.
+- artist_name (string): artista principal.
+- album_name (string): álbum.
+- spotify_track_uri (string): identificador único de la canción.
+- reason_start / reason_end (string): motivo de inicio y de fin de la reproducción.
 - shuffle (bool): True si el modo aleatorio estaba activado.
-- skipped (bool/null): True si la canción fue saltada.
-- platform (string): Plataforma usada.
-- hour (int): Hora del día (0-23).
-- month (int): Mes del año (1-12).
-- day_of_week (int): Día de la semana (0=Lunes, 6=Domingo).
-- is_weekend (bool): True si es fin de semana.
+- skipped (bool): True si la canción fue saltada, False si no.
+- platform (string): plataforma usada.
+- hour (int): hora del día (0-23).
+- month (int): mes del año (1-12).
+- year (int): año.
+- year_month (string): año y mes en formato "AAAA-MM". Ordena cronológicamente por esta columna.
+- day_of_week (int): día de la semana (0=Lunes, 6=Domingo).
+- is_weekend (bool): True si es sábado o domingo.
+- season (string): estación del año ("Invierno", "Primavera", "Verano", "Otoño").
 
-TIPOS DE PREGUNTAS:
-- Rankings: Agrupa por 'artist_name' o 'track_name'. Usa px.bar.
-- Evolución: Agrupa por 'month'. Usa px.line.
-- Patrones: Agrupa por 'hour' o 'day_of_week'. Usa px.bar.
-- Comportamiento: Usa la columna 'skipped' o 'shuffle'. Usa px.pie.
-- Comparaciones (ej. verano vs invierno): Filtra creando una columna condicional basada en 'month' (ej. verano: 6,7,8; invierno: 12,1,2). Agrupa y usa px.bar con barmode='group'.
+CÓMO INTERPRETAR LAS PREGUNTAS:
+- "Más escuchado" sin más detalle = suma de tiempo escuchado. "Más veces" = número de reproducciones (contar filas). Si piden horas, usa hours_played; si no, minutes_played.
+- Rankings (top artistas, canciones, álbumes): agrupa, ordena de mayor a menor y usa px.bar horizontal (orientation='h') con el mayor arriba. Si no dicen cuántos, muestra el top 10.
+- Evolución temporal: agrupa por year_month (nunca solo por month, porque el periodo puede abarcar dos años) y usa px.line con marcadores.
+- Canciones nuevas o descubiertas: una canción se descubre en el year_month de su primera reproducción (mínimo de ts por spotify_track_uri). Cuenta cuántas canciones se descubren cada mes.
+- Patrones de uso: agrupa por hour, day_of_week o is_weekend y usa px.bar. Muestra los días con nombre (Lunes...Domingo) y en orden. Entre semana = is_weekend False.
+- Comportamiento (saltos, shuffle): calcula porcentajes sobre el total de reproducciones y usa px.pie o px.bar con etiquetas legibles ("Saltada"/"No saltada", "Aleatorio"/"En orden").
+- Comparación entre periodos: crea una variable con el periodo (por ejemplo season, o primer/segundo semestre según month 1-6 y 7-12) y usa px.bar con barmode='group' o facetas. Para comparar tops, calcula el top de cada periodo por separado.
+- Si la pregunta es ambigua, elige la interpretación más razonable y explícala en "interpretacion".
 """
 
 
@@ -101,21 +120,31 @@ def load_data():
     
     # 2. Crear columnas derivadas útiles para facilitar el trabajo al LLM
     df['minutes_played'] = df['ms_played'] / 60000
+    df['hours_played'] = df['ms_played'] / 3600000
     df['hour'] = df['ts'].dt.hour
     df['month'] = df['ts'].dt.month
+    df['year'] = df['ts'].dt.year
+    df['year_month'] = df['ts'].dt.strftime('%Y-%m')  # orden cronológico aunque el periodo abarque dos años
     df['day_of_week'] = df['ts'].dt.dayofweek # 0 = Lunes, 6 = Domingo
     df['is_weekend'] = df['day_of_week'] >= 5
-    
+    df['season'] = df['month'].map({12: 'Invierno', 1: 'Invierno', 2: 'Invierno',
+                                    3: 'Primavera', 4: 'Primavera', 5: 'Primavera',
+                                    6: 'Verano', 7: 'Verano', 8: 'Verano',
+                                    9: 'Otoño', 10: 'Otoño', 11: 'Otoño'})
+
+    # 3. skipped viene vacío cuando la canción NO se saltó: lo convertimos a True/False
+    df['skipped'] = df['skipped'].fillna(False).astype(bool)
+
     # Renombrar columnas largas para ahorrar tokens
     df.rename(columns={
         'master_metadata_track_name': 'track_name',
         'master_metadata_album_artist_name': 'artist_name',
         'master_metadata_album_album_name': 'album_name'
     }, inplace=True)
-    
-    # 3. Filtrar registros irrelevantes (menos de 30 segundos)
-    df = df[df['ms_played'] >= 30000]
-    
+
+    # No filtramos las reproducciones cortas: la mayoría son canciones saltadas
+    # y eliminarlas falsearía las preguntas de comportamiento (% de saltos).
+
     return df
 
 
